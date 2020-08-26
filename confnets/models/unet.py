@@ -476,6 +476,11 @@ class RecurrentUNet(UNet2d):
         
         super(RecurrentUNet, self).__init__(*super_args, **super_kwargs) 
 
+    def _reset_hidden_states(self):
+        for module in self.skip_modules:
+            module.hidden_state_initialized = torch.Tensor([False]).\
+                    bool()
+
     # Overrides
     def construct_input_module(self):
         f_in = self.in_channels
@@ -531,23 +536,31 @@ class RecurrentUNet(UNet2d):
                             invert_update_gate=True,
                             out_gate_activation=nn.functional.relu)
         
-    def forward(self, input_, sequence=False):
+    def forward(self, input_, sequence=False, ignore_first=False):
         """        
         The internal state of the skip connections will update with every image
         that they work on. The current internal state is used in combination 
         with the incoming image to produce a better result. 
         
         Inputs:
-            :param input_ (Tensor): Shaped (batch, channels, x, y)
+            :param input_ (Tensor): Shaped (batch, channels,[ T,] x, y)
             :param sequence (bool): If True, input_ will be expected as
             (batch, channels, t, x, y), where the t is the time axis. The output
             will be of the same shape. A use case is, for example, processing a 
             batch of videos each with length t (or set batch=1 for a single video).
+            :param ignore_first: If predicting parent embeddings, skip the initial
+            timepoint, because t- 1 does not exist there.
         """
+        self._reset_hidden_states() # TODO maybe change this at some point?
+
+        current_device = input_.device
         if sequence:
-            output = torch.zeros(input_.shape)
+            B,C,T,X,Y = input_.shape
+            output = torch.zeros((B, self.out_channels, T, X, Y), device=current_device)
             for time_index in range(input_.shape[2]):
-                frame = input_[:,:, time_index, :,:] # (batch, ch, x, y)
+                if ignore_first and time_index == 0:
+                    continue
+                frame = input_[:,:, time_index, :,:] # (B, C, X, Y)
                 output[:,:, time_index, :,:] = super(RecurrentUNet, self).forward(frame) 
         else:
             output = super(RecurrentUNet, self).forward(input_)

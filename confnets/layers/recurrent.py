@@ -31,15 +31,7 @@ class ConvGRUCell(nn.Module):
             .format(type(out_gate_activation))
         self.out_gate_activation = out_gate_activation
 
-        # Initial hidden state
-        self.hidden_state = None
-
-        # init.orthogonal(self.reset_gate.weight)
-        # init.orthogonal(self.update_gate.weight)
-        # init.orthogonal(self.out_gate.weight)
-        # init.constant(self.reset_gate.bias, 0.)
-        # init.constant(self.update_gate.bias, 0.)
-        # init.constant(self.out_gate.bias, 0.)
+        self.hidden_state_initialized = False
 
     def forward(self, input_):
 
@@ -47,21 +39,26 @@ class ConvGRUCell(nn.Module):
         batch_size = input_.data.size()[0]
         spatial_size = input_.data.size()[2:]
 
-        # generate hidden state of zeros, if currently None
-        if self.hidden_state is None:
+        # generate hidden state of zeros, if hidden state uninitialized.
+        if not self.hidden_state_initialized:
+            current_device = input_.device
             state_size = [batch_size, self.hidden_size] + list(spatial_size)
-            self.hidden_state = input_.new(torch.zeros(state_size))
+            self.hidden_state = torch.zeros((state_size), device=current_device)
+            self.hidden_state_initialized = True
 
-        # if batch size changes, reset hidden state to 0-s.
-        if self.hidden_state.shape[0] != batch_size:
-            self.hidden_state = torch.zeros((batch_size, self.hidden_size, *spatial_size))
+        # if batch size/spatial size changes, reset hidden state to 0-s.
+        if (self.hidden_state.shape[0] != batch_size) or (spatial_size[-1] != self.hidden_state.shape[-1])\
+                or (spatial_size[-2] != self.hidden_state.shape[-2]):
+            current_device = input_.device
+            self.hidden_state = torch.zeros((batch_size, self.hidden_size, *spatial_size),
+                    device=current_device)
 
         # data size is [batch, channel, ...]
         stacked_inputs = torch.cat([input_, self.hidden_state], dim=1)
         update = torch.sigmoid(self.update_gate(stacked_inputs))
         reset = torch.sigmoid(self.reset_gate(stacked_inputs))
         out_inputs = self.out_gate_activation(self.out_gate(torch.cat([input_, self.hidden_state * reset], dim=1)))
-
+#       
         # Sometimes an architecture has these the other way around
         if not self.invert_update_gate:
             self.hidden_state = self.hidden_state * (1-update) + out_inputs * update
