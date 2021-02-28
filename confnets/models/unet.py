@@ -536,7 +536,7 @@ class RecurrentUNet(UNet2d):
                             invert_update_gate=True,
                             out_gate_activation=nn.functional.relu)
         
-    def forward(self, input_, sequence=False, ignore_first=False):
+    def forward(self, input_, sequence=False, ignore_first=False, reset_hidden_states=True):
         """        
         The internal state of the skip connections will update with every image
         that they work on. The current internal state is used in combination 
@@ -551,7 +551,8 @@ class RecurrentUNet(UNet2d):
             :param ignore_first: If predicting parent embeddings, skip the initial
             timepoint, because t- 1 does not exist there.
         """
-        self._reset_hidden_states() # TODO maybe change this at some point?
+        if reset_hidden_states:
+            self._reset_hidden_states()
 
         current_device = input_.device
         if sequence:
